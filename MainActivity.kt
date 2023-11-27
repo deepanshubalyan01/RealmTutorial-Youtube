@@ -1,31 +1,36 @@
 package com.example.realmsetup
 
+import android.Manifest
+import android.app.Activity
+import android.content.ContentValues
 import android.content.Intent
-import androidx.appcompat.app.AppCompatActivity
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
 import android.os.Bundle
+import android.provider.MediaStore
+import android.util.Base64
 import android.util.Log
-import android.view.View
-import android.widget.Button
-import android.widget.TextView
-import androidx.activity.result.ActivityResultLauncher
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.Nullable
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import com.example.realmsetup.databinding.ActivityMainBinding
 import com.google.android.gms.auth.api.identity.BeginSignInRequest
-import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.auth.api.identity.SignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.tasks.Task
 import com.google.android.material.snackbar.Snackbar
 import io.realm.Realm
 import io.realm.mongodb.App
 import io.realm.mongodb.Credentials
-import io.realm.mongodb.auth.GoogleAuthType
-import kotlinx.coroutines.runBlocking
 import org.bson.Document
+import java.io.ByteArrayOutputStream
+
 
 class MainActivity : AppCompatActivity() {
 
@@ -46,29 +51,29 @@ class MainActivity : AppCompatActivity() {
         app = App("myfirstapp-kwawk")
 
 
-
-        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestIdToken(getString(R.string.clientId))
-            .requestEmail()
-            .build()
-
-        gsc = GoogleSignIn.getClient(this, gso)
-        oneTapClient = Identity.getSignInClient(this)
-        signInRequest = BeginSignInRequest.builder()
-            .setGoogleIdTokenRequestOptions(BeginSignInRequest.GoogleIdTokenRequestOptions.builder()
-                .setSupported(true)
-                .setServerClientId(getString(R.string.clientId))
-                .setFilterByAuthorizedAccounts(true)
-                .build())
-            .build()
-
-
-        binding.bttnGoogleSignin.setOnClickListener {
-            val intent = gsc.signInIntent
-            startActivityForResult(intent, GOOGLE_REQUEST_CODE)
-
-
-        }
+//
+//        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+//            .requestIdToken(getString(R.string.clientId))
+//            .requestEmail()
+//            .build()
+//
+//        gsc = GoogleSignIn.getClient(this, gso)
+//        oneTapClient = Identity.getSignInClient(this)
+//        signInRequest = BeginSignInRequest.builder()
+//            .setGoogleIdTokenRequestOptions(BeginSignInRequest.GoogleIdTokenRequestOptions.builder()
+//                .setSupported(true)
+//                .setServerClientId(getString(R.string.clientId))
+//                .setFilterByAuthorizedAccounts(true)
+//                .build())
+//            .build()
+//
+//
+//        binding.bttnGoogleSignin.setOnClickListener {
+//            val intent = gsc.signInIntent
+//            startActivityForResult(intent, GOOGLE_REQUEST_CODE)
+//
+//
+//        }
 
 
 
@@ -114,16 +119,16 @@ class MainActivity : AppCompatActivity() {
 
 
 //        Anonymous login
-//        app.loginAsync(Credentials.anonymous()){result->
-//
-//            if(result.error == null){
-//                Log.i("TAG", "onCreate:  login successful ${result.get().id}"  )
-//            }
-//            else{
-//                Log.i("TAG", "onCreate:  login successful ${result.get().id}"  )
-//            }
-//
-//        }
+        app.loginAsync(Credentials.anonymous()){result->
+
+            if(result.error == null){
+                Log.i("TAG", "onCreate:  login successful ${result.get().id}"  )
+            }
+            else{
+                Log.i("TAG", "onCreate:  login successful ${result.get().id}"  )
+            }
+
+        }
 
 //        login code
 //        if(app!!.currentUser()?.id == null) {
@@ -185,27 +190,80 @@ class MainActivity : AppCompatActivity() {
 //        }
 
 
+      //--------------Uploading Media using Realm----------------------//
+        //setps:
+        /*
+        1. Create an AWS S3 I AM role and get credentials
+        2. Add aws sdk dependency to mongodb app services
+        3. Add your I AM credentials in the realm app
+        4. select photo with your app and convert it into base64encoded string
+        5. send the encoded string as a function parameter
+        6. convert the string back into the 
+         */
+
+    binding.pickBttn.setOnClickListener{
+
+        openGallery()
+    }
+    binding.uploadBttn.setOnClickListener {
+
+        app.currentUser()?.functions?.callFunctionAsync("saveImage", listOf(imageData), Document::class.java){ result->
+
+            binding.resultTf.text = result.get().getString("url")
+        }
 
 
     }
 
 
-//google signin
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
 
-        if (requestCode == GOOGLE_REQUEST_CODE) {
-            val acc = GoogleSignIn.getSignedInAccountFromIntent(data)
-            acc.addOnFailureListener{
-                Log.i("TAG", "onActivityResult: login not successful.. ${it.message}   ")
-            }
-            if (acc.isSuccessful) {
-                Log.i("Login", "onActivityResult: successful ")
-                handleSignInResult(acc)
-            }
+
+
+    }
+
+
+    //Image Upload start
+    val PICK_IMAGE_REQUEST = 10023
+    var imageData : String? =""
+    private fun openGallery() {
+        val galleryIntent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+        startActivityForResult(galleryIntent, PICK_IMAGE_REQUEST)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, @Nullable data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == PICK_IMAGE_REQUEST && resultCode == RESULT_OK && data != null) {
+            val selectedImageUri = data!!.data
+            val bitmap = MediaStore.Images.Media.getBitmap(contentResolver, selectedImageUri)
+            imageData = getImageData(bitmap)
+            binding.resultTf.text = "image selected"
         }
     }
 
+
+    fun getImageData(bitmap:Bitmap): String? {
+        val baos = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, baos)
+        val imageBitmap = baos.toByteArray()
+        val imageData = Base64.encodeToString(imageBitmap, Base64.DEFAULT)
+
+        return imageData
+    }
+
+    //image upload end
+
+
+
+
+
+    private val imagePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+                val selectedImageUri = result.data!!.data
+                val bitmap = MediaStore.Images.Media.getBitmap(contentResolver, selectedImageUri)
+                val imageData = getImageData(bitmap)
+                // Use the imageData as needed
+            }
+        }
 
 
     //google signin
@@ -232,5 +290,12 @@ class MainActivity : AppCompatActivity() {
             Log.e("AUTH", "Failed to authenticate using Google OAuth: " + e.message);
         }
     }
+
+
+
+
+
+
+
 
 }
